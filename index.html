@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mouse Jiggler</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #fff;
+    font-family: 'JetBrains Mono', monospace;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+
+  .bar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(255,255,255,0.94);
+    backdrop-filter: blur(12px);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border-bottom: 1px solid #ddd;
+    flex-wrap: wrap;
+    transition: opacity 0.3s;
+  }
+  .bar.hidden { opacity: 0; pointer-events: none; }
+
+  .logo { font-size: 13px; font-weight: 600; color: #999; letter-spacing: 0.08em; text-transform: uppercase; }
+  .sep { width: 1px; height: 22px; background: #ddd; }
+
+  .mode-toggle {
+    display: flex;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .mode-toggle button {
+    background: none; border: none; color: #999;
+    font-family: inherit; font-size: 11px;
+    padding: 5px 12px; cursor: pointer; transition: all 0.2s;
+  }
+  .mode-toggle button.active { background: #fff; color: #16a34a; }
+
+  .field {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; color: #888;
+  }
+  .field input {
+    width: 50px; background: #f8f8f8; border: 1px solid #ddd;
+    color: #333; padding: 4px 6px; border-radius: 4px;
+    font-family: inherit; font-size: 11px; text-align: center;
+  }
+  .field input:focus { outline: none; border-color: #aaa; }
+  .field .unit { color: #bbb; font-size: 10px; }
+
+  .btn {
+    background: #f8f8f8; border: 1px solid #ddd; color: #888;
+    padding: 5px 14px; border-radius: 5px;
+    font-family: inherit; font-size: 11px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover { border-color: #aaa; color: #555; }
+  .btn.on { border-color: #16a34a; color: #16a34a; }
+
+  .status {
+    margin-left: auto; display: flex; align-items: center;
+    gap: 8px; font-size: 11px; color: #aaa;
+  }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: #ddd;
+    transition: all 0.3s;
+  }
+  .dot.go { background: #16a34a; box-shadow: 0 0 6px #16a34a55; }
+  .dot.wait { background: #ca8a04; box-shadow: 0 0 6px #ca8a0444; }
+
+  .toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 100; background: rgba(255,255,255,0.92); border: 1px solid #ddd;
+    border-radius: 8px; padding: 10px 20px;
+    font-size: 10px; color: #999; text-align: center;
+    transition: opacity 0.3s;
+  }
+  .toast.hidden { opacity: 0; pointer-events: none; }
+  kbd {
+    background: #f0f0f0; border: 1px solid #ddd; border-radius: 3px;
+    padding: 1px 5px; font-family: inherit; font-size: 9px; color: #777;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div class="bar" id="bar">
+  <span class="logo">Jiggler</span>
+  <div class="sep"></div>
+
+  <div class="mode-toggle" id="modeToggle">
+    <button class="active" data-mode="test">Test</button>
+    <button data-mode="random">Random</button>
+  </div>
+
+  <div class="field">
+    <span id="moveLbl">Move</span>
+    <input type="number" id="inMove" value="7" min="4" max="60" step="0.5">
+    <span class="unit">s</span>
+  </div>
+  <div class="field">
+    <span id="pauseLbl">Pause</span>
+    <input type="number" id="inPause" value="120" min="1" max="600" step="1">
+    <span class="unit">s</span>
+  </div>
+  <div class="field">
+    <span>Speed</span>
+    <input type="range" id="inSpeed" min="1" max="20" value="6" step="1" style="width:80px;accent-color:#16a34a;">
+    <span id="speedVal" class="unit">6</span>
+  </div>
+
+  <div class="sep"></div>
+
+  <button class="btn on" id="btnRun" onclick="toggle()">Running</button>
+  <button class="btn" onclick="goFS()">Fullscreen</button>
+
+  <div class="status">
+    <span id="label">Starting…</span>
+    <span class="dot" id="dot"></span>
+  </div>
+</div>
+
+<div class="toast" id="toast">
+  Place optical mouse face-down on screen &nbsp;·&nbsp;
+  <kbd>Space</kbd> start/stop &nbsp;·&nbsp;
+  <kbd>F</kbd> fullscreen &nbsp;·&nbsp;
+  <kbd>H</kbd> hide UI
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W, H;
+let running = true;
+let phase = 'move';
+let phaseEnd = 0;
+let mode = 'test';
+let moveDir = { angle: 0, speed: 6 };
+let offsetX = 0, offsetY = 0;
+
+const TILE_SIZE = 150;
+let tileCanvas, tilePattern;
+
+function buildTile() {
+  tileCanvas = document.createElement('canvas');
+  tileCanvas.width = TILE_SIZE;
+  tileCanvas.height = TILE_SIZE;
+  const tc = tileCanvas.getContext('2d');
+  const S = TILE_SIZE;
+  const cx = S / 2;
+  const cy = S / 2;
+
+  tc.imageSmoothingEnabled = false;
+
+  // Pure white background
+  tc.fillStyle = '#ffffff';
+  tc.fillRect(0, 0, S, S);
+
+  // Pure black lines, bolder
+  tc.strokeStyle = '#000000';
+  tc.lineWidth = 3;
+
+  // Single grid line on top and left edges only
+  // (right/bottom come from the neighboring tile's top/left)
+  tc.beginPath();
+  tc.moveTo(0, 0);
+  tc.lineTo(S, 0);
+  tc.moveTo(0, 0);
+  tc.lineTo(0, S);
+  tc.stroke();
+
+  // 15 concentric rotated squares — pulled inward so they don't touch edges
+  const totalLayers = 15;
+  for (let i = 0; i < totalLayers; i++) {
+    const t = i / totalLayers;
+    const halfSize = (S * 0.40) * (1 - t);
+    if (halfSize < 2) break;
+
+    const angle = (i * Math.PI) / 8;
+
+    tc.save();
+    tc.translate(cx, cy);
+    tc.rotate(angle);
+    tc.beginPath();
+    tc.rect(-halfSize, -halfSize, halfSize * 2, halfSize * 2);
+    tc.stroke();
+    tc.restore();
+  }
+
+  tilePattern = ctx.createPattern(tileCanvas, 'repeat');
+}
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  ctx.imageSmoothingEnabled = false;
+  buildTile();
+}
+window.addEventListener('resize', resize);
+resize();
+
+function rand(a, b) { return Math.random() * (b - a) + a; }
+
+function getMaxMove() { return Math.max(4, parseFloat(document.getElementById('inMove').value) || 7); }
+function getMaxPause() { return Math.max(1, parseFloat(document.getElementById('inPause').value) || 120); }
+
+function pickMoveDuration() {
+  if (mode === 'test') return getMaxMove();
+  // Random: between 4 and max move seconds
+  return rand(4, getMaxMove());
+}
+
+function pickPauseDuration() {
+  if (mode === 'test') return getMaxPause();
+  // Random: weighted toward longer pauses, max 2 min
+  const max = getMaxPause();
+  const r = Math.random();
+  if (r < 0.08) return rand(3, Math.min(8, max));
+  if (r < 0.22) return rand(8, Math.min(20, max));
+  if (r < 0.65) return rand(20, Math.min(50, max));
+  if (r < 0.82) return rand(50, Math.min(80, max));
+  if (r < 0.93) return rand(80, Math.min(100, max));
+  return rand(100, max);
+}
+
+function getSpeed() { return Math.max(1, parseFloat(document.getElementById('inSpeed').value) || 6); }
+
+document.getElementById('inSpeed').addEventListener('input', e => {
+  document.getElementById('speedVal').textContent = e.target.value;
+});
+
+let goingRight = true;
+
+function beginMove() {
+  phase = 'move';
+  phaseEnd = performance.now() + pickMoveDuration() * 1000;
+  // Alternate: right then left then right...
+  moveDir.angle = goingRight ? 0 : Math.PI;
+  goingRight = !goingRight;
+  moveDir.speed = getSpeed();
+  document.getElementById('dot').className = 'dot go';
+}
+
+function beginPause() {
+  phase = 'pause';
+  phaseEnd = performance.now() + pickPauseDuration() * 1000;
+  pauseDrawn = false;
+  document.getElementById('dot').className = 'dot wait';
+}
+
+beginMove();
+
+let pauseDrawn = false;
+
+function drawPattern() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.translate(offsetX % TILE_SIZE, offsetY % TILE_SIZE);
+  ctx.fillStyle = tilePattern;
+  ctx.fillRect(-TILE_SIZE * 2, -TILE_SIZE * 2, W + TILE_SIZE * 4, H + TILE_SIZE * 4);
+  ctx.restore();
+}
+
+function drawPause() {
+  if (pauseDrawn) return;
+  drawPattern();
+  pauseDrawn = true;
+}
+
+let lastT = performance.now();
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (!running) return;
+
+  const dt = Math.min((now - lastT) / 1000, 0.1);
+  lastT = now;
+
+  if (phase === 'move') {
+    offsetX += Math.cos(moveDir.angle) * getSpeed() * dt * 60;
+    drawPattern();
+    if (now > phaseEnd) beginPause();
+  } else {
+    drawPause();
+    if (now > phaseEnd) beginMove();
+  }
+
+  const rem = Math.max(0, (phaseEnd - now) / 1000);
+  const m = Math.floor(rem / 60);
+  const s = Math.floor(rem % 60);
+  const t = m > 0 ? `${m}m ${s}s` : `${s}s`;
+  document.getElementById('label').textContent =
+    phase === 'move' ? `Moving ${t}` : `Paused ${t}`;
+}
+
+requestAnimationFrame(frame);
+
+function toggle() {
+  running = !running;
+  if (running) lastT = performance.now();
+  document.getElementById('btnRun').textContent = running ? 'Running' : 'Stopped';
+  document.getElementById('btnRun').classList.toggle('on', running);
+}
+
+function goFS() {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+}
+
+document.getElementById('modeToggle').addEventListener('click', e => {
+  if (!e.target.dataset.mode) return;
+  mode = e.target.dataset.mode;
+  document.querySelectorAll('#modeToggle button').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode)
+  );
+  document.getElementById('moveLbl').textContent = mode === 'test' ? 'Move' : 'Max move';
+  document.getElementById('pauseLbl').textContent = mode === 'test' ? 'Pause' : 'Max pause';
+});
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); toggle(); }
+  if (e.code === 'KeyF') goFS();
+  if (e.code === 'KeyH') {
+    document.getElementById('bar').classList.toggle('hidden');
+    document.getElementById('toast').classList.toggle('hidden');
+  }
+});
+</script>
+</body>
+</html>
