@@ -284,7 +284,8 @@ function drawPattern() {
 
 function drawPause() {
   if (pauseDrawn) return;
-  drawPattern();
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, W, H);
   pauseDrawn = true;
 }
 
