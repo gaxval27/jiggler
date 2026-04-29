@@ -117,12 +117,12 @@
 
   <div class="field">
     <span id="moveLbl">Move</span>
-    <input type="number" id="inMove" value="7" min="4" max="60" step="0.5">
+    <input type="number" id="inMove" value="7" min="2" max="60" step="0.5">
     <span class="unit">s</span>
   </div>
   <div class="field">
     <span id="pauseLbl">Pause</span>
-    <input type="number" id="inPause" value="90" min="15" max="600" step="1">
+    <input type="number" id="inPause" value="90" min="3" max="600" step="1">
     <span class="unit">s</span>
   </div>
   <div class="field">
@@ -224,24 +224,17 @@ resize();
 
 function rand(a, b) { return Math.random() * (b - a) + a; }
 
-function getMaxMove() { return Math.max(4, parseFloat(document.getElementById('inMove').value) || 7); }
+function getMaxMove() { return Math.max(2, parseFloat(document.getElementById('inMove').value) || 7); }
 function getMaxPause() { return Math.max(1, parseFloat(document.getElementById('inPause').value) || 120); }
 
 function pickMoveDuration() {
   if (mode === 'test') return getMaxMove();
-  // Random: between 4 and max move seconds
-  return rand(4, getMaxMove());
+  return rand(2, getMaxMove());
 }
 
 function pickPauseDuration() {
   if (mode === 'test') return getMaxPause();
-  // Random: 15s minimum, 90s maximum
-  const r = Math.random();
-  if (r < 0.15) return rand(15, 25);
-  if (r < 0.45) return rand(25, 40);
-  if (r < 0.75) return rand(40, 60);
-  if (r < 0.92) return rand(60, 75);
-  return rand(75, 90);
+  return rand(3, getMaxPause());
 }
 
 function getSpeed() { return Math.max(1, parseFloat(document.getElementById('inSpeed').value) || 6); }
